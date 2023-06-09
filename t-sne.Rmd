@@ -92,7 +92,7 @@ kmodes_spec$cluster -> cluster
 k-means
 
 ```{r}
-k_means_spec <- k_means(num_clusters = 4) %>% set_engine("stats")
+k_means_spec <- k_means(num_clusters = 3) %>% set_engine("stats")
 
 kmeans_workflow <- workflow() %>%
 add_model(k_means_spec) %>% add_formula(~.)
