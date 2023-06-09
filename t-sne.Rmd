@@ -111,8 +111,7 @@ library(plotly)
 
 ```{r}
 tsne <- Rtsne(df, 
-              perplexity = 50,
-              eta = 100,
+              perplexity = 30,
               max_iter = 500,dim = 3)
 
 ```
