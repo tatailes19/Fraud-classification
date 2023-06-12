@@ -1,0 +1,145 @@
+---
+title: "Untitled"
+author: "Tata iles"
+date: "2023-06-12"
+output: html_document
+---
+
+```{r}
+library(reticulate)
+use_python("C:/Users/tatai/AppData/Local/Programs/Python/Python311/python.exe")
+```
+
+# Libraries
+
+```{python}
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+sns.set_theme(style = "darkgrid")
+```
+
+```{r include=FALSE}
+library(tidyverse)
+library(tidyclust)
+library(tidymodels)
+library(Rtsne)
+library(plotly)
+```
+
+# Data
+
+```{python}
+data = pd.read_csv("D:/Downloads/archive (1)/Mall_Customers.csv")
+```
+
+```{r}
+data = py$data
+data %>% head()
+```
+
+# EDA
+
+```{python}
+data.info()
+```
+
+```{r}
+data %>% summary()
+```
+
+```{r}
+colnames(data) <- c("id","sex","age","annuel_score","spending_score") 
+data <- data %>% select(-1)
+```
+
+```{r}
+data %>% count(sex) %>% ggplot(aes(n,sex,fill=sex)) + geom_col() + scale_fill_grey() + theme_light()
+```
+
+```{python}
+for i in data.columns[2:] :
+  sns.displot(x=i,data = data)
+  plt.title(i)
+  plt.show();
+```
+
+# Clustering
+
+## Recipe
+
+```{r}
+t_sne_rec <- recipe(~.,data = data) %>% 
+  step_normalize(all_numeric()) %>%
+  step_dummy(all_nominal())
+
+df <- t_sne_rec %>% prep(data) %>% juice()
+```
+
+## Cross-Validation
+
+```{r}
+cv <- vfold_cv(data,v = 5)
+```
+
+## Tuning grid
+
+```{r}
+grid <- tibble(num_clusters = seq(1,15))
+```
+
+## K-means workflow
+
+```{r}
+k_means_spec <- k_means(num_clusters = tune()) %>% set_engine("stats")
+
+kmeans_workflow <- workflow() %>%
+add_model(k_means_spec) %>% add_recipe(t_sne_rec)
+
+```
+
+### Tuning
+
+```{r}
+tune_res <- tune_cluster(object = kmeans_workflow,resamples = cv,grid = grid)
+
+
+tune_res %>% autoplot()
+```
+
+### Elbow method (5 clusters)
+
+```{r}
+final_kmeans <- kmeans_workflow %>%
+update_model(k_means_spec %>% set_args(num_clusters = 5)) %>%
+fit(data)
+```
+
+### 3D representation
+
+```{r}
+augment(final_kmeans, new_data = data) %>%
+plot_ly(x = ~spending_score , y = ~annuel_score, z = ~age , color = ~.pred_cluster)
+```
+
+## Hierarchical clustering
+
+```{r}
+
+hc_spec <- hier_clust(linkage_method = "ward.D")
+
+hc_fit <- hc_spec %>%
+fit(~.,data = df)
+
+hc_fit$fit %>% plot()
+```
+
+```{r}
+final_hir <- kmeans_workflow %>%
+update_model(k_means_spec %>% set_args(num_clusters = 2)) %>%
+fit(data)
+
+augment(final_hir, new_data = data) %>%
+plot_ly(x = ~spending_score , y = ~annuel_score, z = ~age , color = ~.pred_cluster)
+```
