@@ -1,0 +1,210 @@
+---
+title: "Untitled"
+author: "Tata iles"
+date: "2023-06-14"
+output: html_document
+---
+
+# Libraries
+
+```{r include=FALSE}
+library(readr)
+library(tidyverse)
+library(tidymodels)
+```
+
+# Data
+
+```{r message=FALSE, warning=FALSE}
+data <- read_delim("D:/Python-R/Databases/student/student-mat.csv", 
+    delim = ";", escape_double = FALSE, trim_ws = TRUE)
+
+```
+
+# EDA
+
+## Selecting important variables
+
+```{r}
+df <- data %>%
+  select(c(sex,age,reason,studytime,traveltime,failures,schoolsup,famsup,
+           paid,higher,health,absences,internet,Dalc,Walc,G1,G2,G3)) %>%
+  mutate_if(is.character,as.factor)
+```
+
+```{r}
+df %>% select_if(is.numeric) %>% summary()
+```
+
+```{r}
+numeric <- df %>% select_if(is.numeric)
+for (i in colnames(numeric[,-11])) {
+  plot(numeric[[i]],df$G3,title(main =i))
+}
+```
+
+```{r}
+numeric %>% cor() %>% corrplot::corrplot(type = "upper")
+```
+
+# Models
+
+## Splitting
+
+```{r}
+set.seed(2023)
+split <- initial_split(df ,prop=0.8, strata = G3)
+train <- split %>% training()
+test <- split %>% testing()
+```
+
+## Recipe
+
+```{r}
+reg_rec <- recipe(G3~.,data = train) %>%
+  step_normalize(all_numeric_predictors()) %>% 
+  step_dummy(all_factor_predictors()) 
+
+juiced <- reg_rec %>% prep(train) %>% juice()
+```
+
+## Linear model
+
+A lot of non significant variables
+
+```{r}
+linear <- lm(G3~.,data = juiced)
+linear %>% summary() 
+```
+
+### Performance
+
+```{r}
+baked <- prep(reg_rec, train)
+
+
+pred <- linear %>% predict(newdata = bake(baked, new_data = test))
+
+rmse <- (test$G3 - pred)^2 %>% mean() %>% sqrt() 
+paste("rmse = ",rmse)
+```
+
+## Regularised regression
+
+```{r}
+set.seed(2023)
+cv <- vfold_cv(data=train, v=10 ,strata = G3)
+
+grid <- grid_random(mixture(),penalty(),size = 10)
+
+linreg_spec <- linear_reg(mixture = tune(), penalty = tune()) %>%
+  set_engine("glmnet") %>%
+  set_mode("regression")
+
+global_wflow <- 
+  workflow() %>% 
+  add_recipe(reg_rec)
+
+reg_wflow <- global_wflow %>%
+  add_model(linreg_spec)
+
+reg_res <- 
+  tune_grid(
+    object = reg_wflow, 
+    resamples = cv, 
+    grid = grid,
+  )
+```
+
+```{r}
+best <- select_best(reg_res)
+reg <- linear_reg(mixture = best$mixture, penalty=best$penalty) %>%
+  set_mode("regression") %>% set_engine("glmnet")
+final_workflow <- global_wflow %>%
+  add_model(reg)
+best
+```
+
+### Performance
+
+```{r}
+fit <- final_workflow %>% last_fit(split)
+fit$.metrics
+```
+
+```{r}
+fit$.predictions %>% as.data.frame() %>% mutate(.pred = round(.pred))
+```
+
+### Selecting significant coefs
+
+```{r}
+coef <- fit(final_workflow,train) %>% tidy()
+coef
+```
+
+```{r}
+coef %>% filter(estimate != 0) %>% pull(term) -> imp_var
+```
+
+## Gradient Descent
+
+```{r}
+GradientDesc <- function(x, y, alpha = 0.006,tol = 1e-8){
+  n<-length(x)
+  
+  x <- as.matrix(data.frame(rep(1,n),x))
+  
+  beta=rep(0,ncol(x))
+
+  cost <- (1/(2*n)) * t(y - x %*% beta) %*% (y - x %*% beta )
+  error <- 1
+  i <- 0
+  while(error > tol){
+    i <- i + 1
+    
+    beta <- beta - alpha  * (-t(x) %*% (y - x %*% beta))/n
+    
+    new_cost <- (1/(2*n)) * t(y - x %*% beta) %*% (y - x %*% beta)
+    
+    cost <- append(cost, new_cost)
+    
+    error <- abs(cost[i+1] - cost[i])
+    
+    if((cost[i+1] - cost[i]) > 0){
+      return(list(beta=beta))
+    }
+  }
+  
+  s<-as.data.frame("x"=cost)
+  return(list(beta=beta,cost=s))
+}
+```
+
+```{r}
+X<-juiced %>% select(-G3) %>% as.matrix()
+GradientDesc(X,juiced$G3)$beta
+```
+
+### Performance
+
+```{r}
+juiced %>% select(-G3) %>% select(imp_var[2:10]) -> Gd_fit
+GradientDesc(as.matrix(Gd_fit),juiced$G3,0.05) -> gd_final
+(gd_final$beta)
+paste("rmse =",gd_final$cost %>% as.data.frame() %>% min())
+```
+
+```{r}
+bake(baked, new_data = test) %>%
+  select(imp_var[2:10]) -> t
+cbind(rep(1,81),t) %>% as.matrix() %*% gd_final$beta -> gd_pred
+
+cbind(round(gd_pred),test$G3) %>% as.data.frame()
+```
+
+```{r}
+gd_cost <- GradientDesc(as.matrix(Gd_fit),juiced$G3,0.006,1e-3)
+
+gd_cost$cost %>% as.data.frame() %>% ggplot(aes(1:length(cost),cost))+geom_line()
+```

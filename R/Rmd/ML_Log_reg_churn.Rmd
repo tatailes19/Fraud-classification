@@ -1,0 +1,257 @@
+---
+title: "Logistic regression"
+author: "Tata iles"
+date: "2023-03-10"
+output: html_document
+---
+
+```{r}
+library(tidymodels)
+library(tidyverse)
+```
+
+# Loading data
+
+```{r}
+data <- read.csv("D:/Python-R/Databases/Telco-Customer-Churn.csv")
+no_service =colnames(data)[7:14]
+
+data <- data %>% select(-1) %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate(SeniorCitizen=as.factor(SeniorCitizen)) %>%
+  mutate_at(no_service,
+            function(x) ifelse(x %in% 
+                      c("No internet service","No phone service","No"),"No","Yes"))
+
+data$Churn <- relevel(data$Churn, ref = "Yes")
+
+
+
+
+#glimpse(data)
+```
+
+# Splitting the data
+
+```{r}
+set.seed(123)
+
+data_split <- data %>% initial_split()
+
+train <- data_split %>% training()
+test <- data_split %>% testing()
+
+```
+
+# Model 1
+
+```{r}
+model_simple <- logistic_reg() %>% set_mode("classification") %>% 
+  set_engine("glm") 
+
+recipe <- train %>% recipe(Churn~.) %>% 
+  step_dummy(all_nominal_predictors()) %>%
+  step_scale(c("tenure","TotalCharges","MonthlyCharges")) 
+  
+  
+
+
+recipe %>% prep(train) %>% juice()
+
+
+wrkf1 <- workflow() %>% add_model(model_simple) %>% add_recipe(recipe)
+```
+
+## Coefficients of regression
+
+```{r warning=FALSE}
+fit(wrkf1,train) %>% tidy()
+
+```
+
+### Interpretation des coefficients
+
+pour une augmentation de $exp(\beta)$ va causer une augmentation de la probabilité d'avoir "yes" par $1-exp(\beta)$
+
+par exemple $\beta_2=-0.688$ donc une augmentation de $exp(\beta)=4.14$ cause diminution de la proba de "yes" par $1-exp(\beta)=0.497$ \<=\> 49%
+
+## Predictions
+
+```{r}
+fitted <- last_fit(wrkf1,data_split)
+
+collect_predictions(fitted) -> results
+
+results
+```
+
+## Performance
+
+```{r}
+
+metric <- metric_set(accuracy, sens, precision,yardstick::spec,recall)
+
+
+metric(results, truth=Churn, estimate=.pred_class)
+
+fitted %>% collect_metrics()
+
+results %>%
+  conf_mat(truth = Churn , estimate = .pred_class)
+
+results
+```
+
+```{r}
+results %>%
+  roc_auc(truth = Churn , estimate = .pred_Yes)
+```
+
+```{r}
+results %>%
+  roc_curve(truth = Churn , estimate = .pred_Yes) %>% autoplot()
+```
+
+# Model 2
+
+## Cross validation
+
+```{r}
+data_cv <- vfold_cv(data=train, v=10 ,strata = Churn)
+```
+
+## Hyper parameter tuning using cv
+
+```{r}
+model_tune <- logistic_reg(penalty=tune(), mixture = tune()) %>%
+  set_mode("classification") %>% 
+  set_engine("glmnet") 
+
+grid <- grid_regular(penalty(range = c(-2,2)),mixture(c(0,1)),levels=10)
+grid
+
+wrkf2 <- workflow() %>% 
+  add_model(model_tune) %>%
+  add_recipe(recipe) %>% 
+  tune_grid(resamples = data_cv, grid=grid)
+show_best(wrkf2,metric="accuracy")
+show_best(wrkf2,metric="roc_auc")
+```
+
+## Hyper parameter tuning using bootstrap
+
+```{r}
+model_tune <- logistic_reg(penalty=tune(), mixture = tune()) %>%
+  set_mode("classification") %>% 
+  set_engine("glmnet") 
+
+grid <- grid_regular(penalty(range = c(-2,2)),mixture(c(0,1)),levels=10)
+grid
+
+wrkf_bs <- workflow() %>% 
+  add_model(model_tune) %>%
+  add_recipe(recipe) %>% 
+  tune_grid(resamples = bootstraps(train,times=10,strata=Churn), grid=grid)
+show_best(wrkf_bs,metric="accuracy")
+show_best(wrkf_bs,metric="roc_auc")
+```
+
+## fitting ridge regularization while tuning penalty
+
+```{r}
+model_ridge <- logistic_reg(penalty=tune(), mixture = 0) %>%
+  set_mode("classification") %>% 
+  set_engine("glmnet") 
+
+grid_r <- grid_regular(penalty(range = c(0,2)),levels=10)
+
+wrkf_r <- workflow() %>% 
+  add_model(model_ridge) %>%
+  add_recipe(recipe) %>% 
+  tune_grid(resamples = data_cv, grid=grid_r)
+show_best(wrkf_r,metric="accuracy")
+show_best(wrkf_r,metric="roc_auc")
+```
+
+## fitting lasso regularization while tuning penalty
+
+```{r}
+model_lasso <- logistic_reg(penalty=tune(), mixture = 1) %>%
+  set_mode("classification") %>% 
+  set_engine("glmnet") 
+
+grid_l <- grid_regular(penalty(range = c(-2,2)),levels=10)
+
+wrkf_l <- workflow() %>% 
+  add_model(model_lasso) %>%
+  add_recipe(recipe) %>% 
+  tune_grid(resamples = data_cv, grid=grid_l)
+show_best(wrkf_l,metric="roc_auc")
+```
+
+# Model 3 (recipe change)
+
+```{r message=FALSE, warning=FALSE}
+best_model <- logistic_reg() %>% set_mode("classification") %>% 
+  set_engine("glm") 
+
+recipe1 <- train %>% recipe(Churn~.) %>% 
+  step_mutate(log_avg=log(TotalCharges/MonthlyCharges))%>%
+  step_BoxCox(all_numeric_predictors()) %>%
+  step_other(all_nominal_predictors(),threshold =0.2) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_scale(c("tenure","TotalCharges","MonthlyCharges")) 
+  
+  
+
+
+recipe1 %>% prep(train) %>% juice()
+
+
+wrkf_best <- workflow() %>% add_model(model_simple) %>% add_recipe(recipe1)
+
+fitted_best <- last_fit(wrkf_best,data_split)
+
+collect_predictions(fitted_best) -> results1
+
+
+```
+
+## Performance
+
+```{r}
+
+metric(results1, truth=Churn, estimate=.pred_class)
+
+results1 %>%
+  conf_mat(truth = Churn , estimate = .pred_class)
+```
+
+```{r}
+fitted_best %>% collect_metrics()
+```
+
+```{r}
+results1 %>%
+  roc_curve(truth = Churn , estimate = .pred_Yes) %>% autoplot()
+```
+
+# Comparing all models
+
+```{r}
+results1 %>% roc_auc(truth = Churn , estimate = .pred_Yes) %>% pull(.estimate) -> best
+results %>% roc_auc(truth = Churn , estimate = .pred_Yes)%>% pull(.estimate) -> basic
+
+(show_best(wrkf2,metric="roc_auc") %>% pull(mean))[1]  -> roc_tune
+(show_best(wrkf2,metric="roc_auc") %>% pull(mean))[1] -> roc_bs
+(show_best(wrkf_r,metric="roc_auc") %>% pull(mean))[1] -> roc_r
+(show_best(wrkf_l,metric="roc_auc") %>% pull(mean))[1] -> roc_l
+
+performance <-c(basic,roc_tune,roc_bs,roc_r,roc_l,best) %>% round(4)
+
+data.frame(cbind(
+  c("model1","model2_tune_cv",
+    "model2_tune_bs","model2_r","model2_l","model3"),
+  performance)) %>%
+  ggplot(aes(V1,performance)) + geom_col() + coord_flip() + labs(x = "model",y="roc_auc")
+```

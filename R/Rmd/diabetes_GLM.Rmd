@@ -1,0 +1,157 @@
+---
+title: "Logistic_Regression"
+author: "Tata iles"
+date: "2023-03-03"
+output: html_document
+---
+
+```{r}
+library(tidymodels)
+library(tidyverse)
+library(mlbench)
+library(corrplot)
+```
+
+# Loading data
+
+```{r}
+data(PimaIndiansDiabetes2 , package = "mlbench") 
+PimaIndiansDiabetes2 -> data
+head(data)
+```
+
+```{r}
+unique(data$diabetes)
+
+data$diabetes <- relevel(data$diabetes, ref = "pos")
+
+unique(data$diabetes)
+```
+
+```{r}
+Histogramme<-function(data,grid){
+    par(mfrow=grid)
+    for (i in colnames(data)) {
+        data %>% pull(i) %>% hist(main = i)
+    }
+}
+
+data %>% select_if(is.numeric) %>% Histogramme(grid=c(3,3))
+```
+
+```{r}
+data %>% select_if(is.numeric) %>%
+  mutate_if(is.numeric,function(x) ifelse(is.na(x), median(x, na.rm = T), x)) %>%
+  cor() %>% corrplot(type = "upper", "color", )
+```
+
+# Splitting data
+
+```{r}
+data_split <- initial_split(data , prop = 0.7 ,strata = diabetes)
+
+train <- data_split %>% training()
+test <- data_split %>% testing()
+```
+
+# Recipe
+
+```{r}
+recipe <- recipe(diabetes~.,data = train) %>% 
+  step_impute_median(all_numeric_predictors()) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_dummy(all_nominal_predictors())
+```
+
+```{r}
+recipe %>% prep(train) %>% juice()
+```
+
+# Logistic Regression
+
+## creating a model
+
+```{r}
+model <- logistic_reg() %>% 
+  set_mode("classification") %>% 
+  set_engine("glm")
+```
+
+## creating workflow
+
+```{r}
+workflow <- workflow() %>%
+  add_model(model) %>% 
+  add_recipe(recipe)
+```
+
+## fitting the model
+
+```{r}
+model_fit <- fit(workflow,train)
+
+
+model_fit %>% tidy()
+```
+
+## prediction
+
+```{r}
+predicted_class <- predict(model_fit,new_data = test,type = "class")$.pred_class
+
+predicted_prob_pos <- predict(model_fit,new_data = test,type = "prob")$.pred_pos
+
+predicted_prob_neg <- predict(model_fit,new_data = test,type = "prob")$.pred_neg
+
+```
+
+# Performance
+
+```{r}
+results <- test %>% select(diabetes) %>% mutate(pred_class=predicted_class,
+                                     pred_pos_prob=predicted_prob_pos,
+                                     pred_neg_prob=predicted_prob_neg)
+
+results
+```
+
+## confusion matrix
+
+```{r}
+conf_mat(results , truth = diabetes,
+         estimate = pred_class)
+```
+
+```{r}
+conf_mat(results , truth = diabetes,
+         estimate = pred_class)%>% autoplot(type = 'mosaic')
+```
+
+## metrics
+
+```{r}
+metric <- metric_set(accuracy, sens, precision)
+
+
+metric(results, truth=diabetes, estimate=pred_class)
+```
+
+```{r}
+spec(results, truth=diabetes, estimate=pred_class)
+```
+
+```{r}
+roc_auc(results, truth=diabetes, estimate=pred_pos_prob)
+```
+
+```{r}
+results %>%
+  roc_curve(truth = diabetes, pred_pos_prob) %>%
+  autoplot()
+```
+
+```{r}
+results %>%
+  roc_curve(truth = diabetes, pred_neg_prob) %>%
+  autoplot()
+```

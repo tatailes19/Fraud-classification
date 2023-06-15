@@ -1,0 +1,288 @@
+---
+title: "ML"
+author: "Tata iles"
+date: "2023-02-26"
+output: html_document
+---
+
+```{r}
+library(tidymodels)
+library(tidyverse)
+```
+
+# Loading data
+
+```{r}
+data(ames, package = "modeldata")
+```
+
+# Splitting data
+
+```{r}
+ames_split<-initial_split(ames,prop = 0.7,strata = Sale_Price)
+train<-ames_split %>% training()
+test<-ames_split %>% testing()
+```
+
+# Creating recipe
+
+```{r}
+rec<-train %>% recipe(Sale_Price~.) %>%
+  step_normalize(all_numeric_predictors())%>%
+  step_other(threshold = 0.8,all_nominal_predictors())%>%
+  step_nzv()%>%
+  step_corr() %>%
+  step_dummy(all_nominal_predictors())
+```
+
+# apply the recipe on the train data
+
+```{r}
+
+rec %>% prep(train) %>% juice()
+```
+
+# Penalized Linear Regression
+
+## fixed hyper parameters
+
+```{r}
+model<- linear_reg() %>% 
+  set_engine("lm") %>%
+  set_mode("regression")
+
+
+#ridge
+model1<- linear_reg(penalty = 100, mixture = 0) %>% 
+  set_engine("glmnet") %>%
+  set_mode("regression")
+
+#lasso
+model2<- linear_reg(penalty = 100, mixture = 1) %>% 
+  set_engine("glmnet") %>%
+  set_mode("regression")
+
+
+model3<- linear_reg(penalty = 100, mixture = 0.7) %>% 
+  set_engine("glmnet") %>%
+  set_mode("regression")
+```
+
+# Workflow 1
+
+```{r}
+ames_wf<-workflow() %>%
+  add_model(model) %>%
+  add_recipe(rec) 
+
+
+ames_wf1<-workflow() %>%
+  add_model(model1) %>%
+  add_recipe(rec) 
+
+ames_wf2<-workflow() %>%
+  add_model(model2) %>%
+  add_recipe(rec) 
+
+ames_wf3<-workflow() %>%
+  add_model(model3) %>%
+  add_recipe(rec) 
+```
+
+```{r}
+fit(ames_wf,train) %>% tidy()
+```
+
+```{r}
+#ridge
+fit(ames_wf1,train) %>% tidy()
+```
+
+```{r}
+#lasso
+fit(ames_wf2,train) %>% tidy()
+```
+
+```{r}
+fit(ames_wf3,train) %>% tidy()
+```
+
+# Performance
+
+```{r}
+metric<-metric_set(mae ,rmse ,rsq , mape)
+
+model_fit <- last_fit(ames_wf,ames_split,metrics=metric)
+
+
+model_fit %>% collect_metrics()
+```
+
+```{r}
+ames_wf
+```
+
+# Hyperparameter tuning
+
+## Cross Validation
+
+```{r}
+ames_cv<-vfold_cv(data=train,v=10,strata = Sale_Price)
+ames_cv1<-vfold_cv(data=train,v=10,strata = Sale_Price,repeats = 2)
+
+```
+
+## Bootstrap
+
+```{r}
+ames_bootstrap <- bootstraps(data=train,strata = Sale_Price,times=10)
+```
+
+## MC
+
+```{r}
+ames_mc <- mc_cv(data=train,strata=Sale_Price,times=5)
+```
+
+# Tuning
+
+```{r}
+model2 <- linear_reg(penalty=tune(), mixture=0.7) %>% 
+  set_mode("regression") %>%
+  set_engine("glmnet") 
+
+workflow2 <- workflow() %>%
+  add_model(model2) %>%
+  add_recipe(rec) 
+
+
+grid1 <- penalty(range=c(0,3)) %>% grid_regular(levels=10)
+
+
+model2_tune <- workflow2 %>% tune_grid(resamples = ames_cv,grid = grid1,metrics = metric)
+
+```
+
+```{r}
+show_best(model2_tune,metric = "rmse")
+```
+
+```{r}
+model2_tune %>% autoplot()
+```
+
+```{r}
+select_best(model2_tune,metric="rmse") -> best
+
+workflow_last <- workflow2 %>% finalize_workflow(best)
+
+workflow_last %>% last_fit(split = ames_split,metrics=metric) %>% collect_metrics()
+```
+
+```{r}
+tune2 <- linear_reg(penalty=tune(), mixture=tune()) %>% 
+  set_mode("regression") %>%
+  set_engine("glmnet") 
+
+workflow4 <- workflow() %>%
+  add_model(tune2) %>%
+  add_recipe(rec) 
+
+
+grid2 <- grid_regular(penalty(range = c(0,2)),mixture(),levels=c(5,5))
+
+
+tune2 <- workflow4 %>% tune_grid(resamples = ames_cv,grid = grid2,metrics = metric)
+
+show_best(tune2,metric = "rmse") -> best1
+
+best1 
+```
+
+# Resample
+
+```{r}
+model1 <- linear_reg() %>%
+  set_mode("regression") %>%
+  set_engine("lm")
+
+
+workflow3 <- workflow() %>% 
+  add_model(model1) %>%
+  add_formula(Sale_Price~Latitude)
+
+
+fit_resample1 <- workflow3 %>% fit_resamples(resamples=ames_cv,metrics = metric)
+
+fit_resample2 <- workflow3 %>% fit_resamples(resamples=ames_bootstrap,metrics = metric)
+
+fit_resample3 <- workflow3 %>% fit_resamples(resamples=ames_mc,metrics = metric)
+
+fit_resample4 <- workflow3 %>% fit_resamples(resamples=ames_cv1,metrics = metric)
+
+
+
+
+fit_resample4 %>% collect_metrics()
+fit_resample1 %>% collect_metrics()
+fit_resample2 %>% collect_metrics()
+fit_resample3 %>% collect_metrics()
+
+
+```
+
+# Logistic Regression
+
+```{r}
+logistic <- logistic_reg() %>% set_mode("classification") %>%
+  set_engine("glm")
+
+rec1 <- train %>% recipe(MS_SubClass~Lot_Area) %>%
+  step_normalize(all_numeric_predictors())%>%
+  step_other(threshold = 0.8,all_nominal_predictors())%>%
+  step_nzv()%>%
+  step_corr() %>%
+  step_dummy(all_nominal_predictors())
+
+rec1 %>% prep(train) %>% juice()
+
+log_wrf <- workflow() %>% 
+  add_model(logistic) %>% 
+  add_recipe(rec1) 
+```
+
+```{r}
+data(Boston , package = "MASS") 
+Boston %>% head()
+```
+
+```{r}
+boston_plit <- initial_split(Boston, strata =medv, porp=0.7)
+
+train <- boston_plit %>% training()
+test <- boston_plit %>% testing()
+```
+
+```{r}
+lambda <- 1:200
+param <- data.frame("zn"=c(),"rm"=c(),"crim"=c(),"tax"=c(),"rad"=c())
+recipe <- train %>% recipe(medv~zn+rm+crim+tax+rad) %>% step_scale(all_numeric_predictors())
+recipe %>% prep(train) %>% juice()
+for (i in lambda){
+  model <- linear_reg(penalty=i , mixture=0) %>% 
+    set_engine("glmnet") %>% 
+    set_mode("regression")
+  wrkflow <- workflow() %>% add_model(model) %>% 
+    add_recipe(recipe) 
+    param <- rbind(param,fit(wrkflow, train) %>% tidy()) 
+    
+}
+param <- param %>% pivot_wider(names_from = term, values_from = estimate) 
+param
+```
+
+```{r}
+param %>% select(-2) %>%
+  gather(key="variable", value = "value", -penalty) %>% 
+  ggplot(aes(penalty,value)) + geom_line(aes(color=variable,linetype=variable))
+```
