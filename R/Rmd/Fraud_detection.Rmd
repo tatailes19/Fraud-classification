@@ -15,12 +15,27 @@ library(bonsai)
 library(geosphere)
 library(sf)
 library(mapview)
+library(viridis)
+library(highcharter)
 ```
 
 # DATA
 
 ```{r}
-fraud <- read.csv("D:/Downloads/base examen écrit.csv")
+library(reticulate)
+use_python("C:/Users/tatai/AppData/Local/Programs/Python/Python311/python.exe")
+```
+
+```{python}
+import pandas as pd
+```
+
+```{python}
+data = pd.read_csv("D:/Downloads/base examen écrit.csv")
+```
+
+```{r}
+fraud <- py$data
 ```
 
 # Preprocessing
@@ -82,16 +97,36 @@ fraud %>% group_by(category) %>% count(is_fraud) %>%
 some ages tend to have more cases for fraud
 
 ```{r}
+#fraud %>% group_by(age) %>%
+#  count(is_fraud) %>%
+#  filter(is_fraud == 1) %>%
+#  mutate(age = as.character(cut(age,
+#                      seq(10, 100, 10)))) %>% 
+#  group_by(age) %>% 
+#  summarize(sums = sum(n)) %>% 
+#  as.data.frame() %>% 
+#  ggplot(aes(age,sums)) + 
+#  ggtitle("Ages and fraud") + geom_col(color="red", fill="white") + ylab("Number of frauds")
+```
+
+```{r}
+custom_colors <- viridis::mako(n = 9)
+
 fraud %>% group_by(age) %>%
   count(is_fraud) %>%
   filter(is_fraud == 1) %>%
   mutate(age = as.character(cut(age,
                       seq(10, 100, 10)))) %>% 
   group_by(age) %>% 
-  summarize(sums = sum(n)) %>% 
-  as.data.frame() %>% 
-  ggplot(aes(age,sums)) + 
-  ggtitle("Ages and fraud") + geom_col(color="red", fill="white") + ylab("Number of frauds")
+  summarize(fraud = sum(n)) %>% 
+  as.data.frame() %>%
+  hchart('column', hcaes(x = age, y = fraud, color = custom_colors)) %>% 
+  hc_add_theme(hc_theme_google()) %>% 
+  hc_tooltip(pointFormat = '<b>Number of sales: </b> {point.y} <br>') %>% 
+  hc_title(text = 'Fraud and Ages',
+           style = list(fontSize = '25px', fontWeight = 'bold')) %>% 
+  hc_subtitle(text = 'Age bins by fraud occurence',
+              style = list(fontSize = '16px'))
 ```
 
 ## Unbalanced data
@@ -105,8 +140,12 @@ fraud %>%
 ```
 
 ```{r}
-fraud %>% count(is_fraud) %>% ggplot(aes(x="",n,fill=is_fraud)) + geom_bar(stat = "identity",width = 0.5) + coord_polar("y") +
-  ggtitle("Percentage of every class") + scale_fill_manual(values=c("#9933FF","#33FFFF"))
+custom_colors <- viridis::cividis(n = 2)
+fraud %>% count(is_fraud)  %>% mutate(is_fraud = c("No fraud","Fraud")) %>%
+  hchart('pie', hcaes(x = is_fraud, y = n,color = custom_colors)) %>%   hc_add_theme(hc_theme_gridlight()) %>% 
+  hc_tooltip(pointFormat = '<b>Number of sales: </b> {point.y} <br>') %>% 
+  hc_title(text = 'Percentage of classes',
+           style = list(fontSize = '25px', fontWeight = 'bold')) 
 ```
 
 Converting the GPS coordinates to distance (new column)
