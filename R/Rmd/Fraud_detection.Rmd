@@ -122,7 +122,7 @@ fraud %>% group_by(age) %>%
   as.data.frame() %>%
   hchart('column', hcaes(x = age, y = fraud, color = custom_colors)) %>% 
   hc_add_theme(hc_theme_google()) %>% 
-  hc_tooltip(pointFormat = '<b>Age: </b> {point.y} <br>') %>% 
+  hc_tooltip(pointFormat = '<b>Frauds: </b> {point.y} <br>') %>% 
   hc_title(text = 'Fraud and Ages',
            style = list(fontSize = '25px', fontWeight = 'bold')) %>% 
   hc_subtitle(text = 'Age bins by fraud occurence',
