@@ -122,7 +122,7 @@ fraud %>% group_by(age) %>%
   as.data.frame() %>%
   hchart('column', hcaes(x = age, y = fraud, color = custom_colors)) %>% 
   hc_add_theme(hc_theme_google()) %>% 
-  hc_tooltip(pointFormat = '<b>Number of sales: </b> {point.y} <br>') %>% 
+  hc_tooltip(pointFormat = '<b>Age: </b> {point.y} <br>') %>% 
   hc_title(text = 'Fraud and Ages',
            style = list(fontSize = '25px', fontWeight = 'bold')) %>% 
   hc_subtitle(text = 'Age bins by fraud occurence',
@@ -143,7 +143,7 @@ fraud %>%
 custom_colors <- viridis::cividis(n = 2)
 fraud %>% count(is_fraud)  %>% mutate(is_fraud = c("No fraud","Fraud")) %>%
   hchart('pie', hcaes(x = is_fraud, y = n,color = custom_colors)) %>%   hc_add_theme(hc_theme_gridlight()) %>% 
-  hc_tooltip(pointFormat = '<b>Number of sales: </b> {point.y} <br>') %>% 
+  hc_tooltip(pointFormat = '<b>Is it fraud: </b> {point.y} <br>') %>% 
   hc_title(text = 'Percentage of classes',
            style = list(fontSize = '25px', fontWeight = 'bold')) 
 ```
