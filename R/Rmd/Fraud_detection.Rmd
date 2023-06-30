@@ -143,7 +143,7 @@ fraud %>%
 custom_colors <- viridis::cividis(n = 2)
 fraud %>% count(is_fraud)  %>% mutate(is_fraud = c("No fraud","Fraud")) %>%
   hchart('pie', hcaes(x = is_fraud, y = n,color = custom_colors)) %>%   hc_add_theme(hc_theme_gridlight()) %>% 
-  hc_tooltip(pointFormat = '<b>Is it fraud: </b> {point.y} <br>') %>% 
+  hc_tooltip(pointFormat = '<b>Fraud: </b> {point.y} <br>') %>% 
   hc_title(text = 'Percentage of classes',
            style = list(fontSize = '25px', fontWeight = 'bold')) 
 ```
