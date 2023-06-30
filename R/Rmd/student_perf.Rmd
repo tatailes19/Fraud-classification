@@ -144,6 +144,19 @@ coef
 ```
 
 ```{r}
+custom_colors <- viridis::magma(n = 20)
+
+coef %>% as.data.frame() %>% 
+  hchart('bar', hcaes(x = term, y = estimate, color = custom_colors)) %>% 
+  hc_add_theme(hc_theme_sandsignika()) %>% 
+  hc_tooltip(pointFormat = '<b>coefficient: </b> {point.y} <br>') %>% 
+  hc_title(text = 'Most important variables',
+           style = list(fontSize = '25px', fontWeight = 'bold')) %>% 
+  hc_subtitle(text = 'By coefficients',
+              style = list(fontSize = '16px'))
+```
+
+```{r}
 coef %>% filter(estimate != 0) %>% pull(term) -> imp_var
 ```
 
